@@ -37,6 +37,8 @@ sys.path[:] = rv_paths + non_rv_paths
 import PyOpenColorIO  # noqa
 importlib.reload(PyOpenColorIO)
 
+from qtpy import QtCore
+
 
 def install_host_in_ayon():
     host = OpenRVHost()
@@ -47,31 +49,49 @@ class AYONMenus(MinorMode):
 
     def __init__(self):
         MinorMode.__init__(self)
+
+        menu_items = [
+            ("Load...", self.load, None, None),
+            ("Publish...", self.publish, None, None),
+            ("Manage...", self.scene_inventory, None, None),
+            ("Library...", self.library, None, None),
+        ]
+
+        if self._is_review_browser_available():
+            menu_items.append(("Review Browser...", self.review_browser, "Ctrl+R", None))
+        else:
+            menu_items.extend([
+                ("Collect Review Inputs", [
+                    ("First submission", self.first_submission, None, None),
+                    ("Resubmission", self.resubmission, None, None),
+                ]),
+                ("Publish Review", self.publish_review, None, None)
+            ])
+
+        menu_items.extend([
+            ("_", None),
+            ("Work Files...", self.workfiles, None, None),
+        ])
+
         self.init(
             name="py-ayon",
             globalBindings=None,
-            overrideBindings=[
-                # event name, callback, description
-                ("ayon_load_container", on_ayon_load_container, "Loads an AYON representation into the session.")
-            ],
-            menu=[
-                # Menu name
-                # NOTE: If it already exists it will merge with existing
-                # and add submenus / menuitems to the existing one
-                ("AYON", [
-                    # Menuitem name, actionHook (event), key, stateHook
-                    ("Load...", self.load, None, None),
-                    ("Publish...", self.publish, None, None),
-                    ("Manage...", self.scene_inventory, None, None),
-                    ("Library...", self.library, None, None),
-                    ("_", None),  # separator
-                    ("Work Files...", self.workfiles, None, None),
-                ])
-            ],
-            # initialization order
+            overrideBindings=[("ayon_load_container", on_ayon_load_container, "Loads an AYON representation into the session.")],
+            menu=[("AYON", menu_items)],
             sortKey="source_setup",
             ordering=15
         )
+
+    def _is_review_browser_available(self):
+        """Check if Review Browser should be shown."""
+        # Only show Review Browser menu if no folder context (launched standalone)
+        if not os.getenv("AYON_FOLDER_PATH"):
+            try:
+                import ayon_review_browser
+                return True
+            except ImportError:
+                return False
+        return False
 
     @property
     def _parent(self):
@@ -79,6 +99,11 @@ class AYONMenus(MinorMode):
 
     def load(self, event):
         host_tools.show_loader(parent=self._parent, use_context=True)
+
+    def review_browser(self, event):
+        from ayon_review_browser import ReviewBrowser
+        window = ReviewBrowser()
+        window.showMaximized()
 
     def publish(self, event):
         host_tools.show_publisher(parent=self._parent,
@@ -92,6 +117,23 @@ class AYONMenus(MinorMode):
 
     def library(self, event):
         host_tools.show_library_loader(parent=self._parent)
+
+    def first_submission(self, event):
+        """First submission - collect plates, EditOT, and current render versions"""
+        from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
+        ReviewSubmissionHandler.collect_review_inputs(self._parent, is_resubmission=False)
+
+    def resubmission(self, event):
+        """Resubmission - collect only current render versions with previous comparison"""
+        from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
+        ReviewSubmissionHandler.collect_review_inputs(self._parent, is_resubmission=True)
+
+    def publish_review(self, event):
+        """Auto-publish then show review dialog"""
+        from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
+
+        host_tools.show_publisher(parent=self._parent, tab="publish")
+        QtCore.QTimer.singleShot(1000, lambda: ReviewSubmissionHandler.trigger_publish_and_review(self._parent))
 
 
 def data_loader():
@@ -135,4 +177,13 @@ if os.getenv("AYON_RV_NO_MENU") != "1":
         if not registered_host():
             install_host_in_ayon()
             data_loader()
-        return AYONMenus()
+
+        ayon_menus = AYONMenus()
+
+        # Auto-open Review Browser only if addon is available
+        if ayon_menus._is_review_browser_available():
+            ayon_menus.review_browser(None)
+
+        # Maximize RV window
+        rv.qtutils.sessionWindow().showMaximized()
+        return ayon_menus

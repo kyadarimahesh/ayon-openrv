@@ -50,6 +50,45 @@ class MovLoader(load.LoaderPlugin):
             loader=self.__class__.__name__,
         )
 
+        # Register with RV Operations for activity panel integration
+        self._register_with_rv_operations(node, filepath, context)
+
+    def _register_with_rv_operations(self, node, filepath, context):
+        """Fire RV event for source loaded - decoupled from Review Browser."""
+        try:
+            import json
+
+            version_id = context['representation']['versionId']
+            version_doc = context['version']
+            
+            # Build event data
+            event_data = {
+                'node': node,
+                'filepath': filepath,
+                'version_id': version_id,
+                'task_id': version_doc['taskId'],
+                'product': context['product']['name'],
+                'folder_path': context['folder']['path'],
+                'project_name': context['project']['name'],
+                'path': context['folder']['path'],
+                'current_version': f"v{version_doc.get('version', 1):03d}",
+                'versions': [f"v{version_doc.get('version', 1):03d}"],
+                'version_status': version_doc.get('status', 'N/A'),
+                'author': version_doc.get('author', 'N/A')
+            }
+
+            # Fire custom RV event (decoupled - no import needed)
+            rv.commands.sendInternalEvent(
+                "ayon_source_loaded",
+                json.dumps(event_data)
+            )
+            
+            self.log.info(f"Fired ayon_source_loaded event for: {filepath}")
+
+        except Exception as e:
+            # Graceful failure - media still loads
+            self.log.debug(f"Could not fire source loaded event: {e}")
+
     def _finalize_loaded_node(self, loaded_node, rep_name, filepath):
         """Finalize the loaded node in OpenRV.
 

@@ -404,6 +404,6 @@ class ReviewMenu(MinorMode):
         import ftrack_api
         session = ftrack_api.Session(auto_connect_event_hub=False)
         self.log.debug("Ftrack user: \"{0}\"".format(session.api_user))
-
-def createMode():
-    return ReviewMenu()
+#
+# def createMode():
+#     return ReviewMenu()
