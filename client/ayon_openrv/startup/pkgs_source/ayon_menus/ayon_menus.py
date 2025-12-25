@@ -49,12 +49,14 @@ class AYONMenus(MinorMode):
 
     def __init__(self):
         MinorMode.__init__(self)
+        self._activity_panel_dock = None  # Track existing panel
 
         menu_items = [
             ("Load...", self.load, None, None),
             ("Publish...", self.publish, None, None),
             ("Manage...", self.scene_inventory, None, None),
             ("Library...", self.library, None, None),
+            ("Activity Panel...", self.activity_panel, "Ctrl+A", None),
         ]
 
         if self._is_review_browser_available():
@@ -118,6 +120,67 @@ class AYONMenus(MinorMode):
     def library(self, event):
         host_tools.show_library_loader(parent=self._parent)
 
+    def activity_panel(self, event):
+        """Show Activity Panel (or bring to front if already exists)."""
+        # Check if panel already exists
+        if self._activity_panel_dock is not None:
+            try:
+                # Bring existing panel to front
+                self._activity_panel_dock.show()
+                self._activity_panel_dock.raise_()
+                print("✅ Activity Panel already open, bringing to front")
+                return
+            except:
+                # Panel was closed/deleted, create new one
+                self._activity_panel_dock = None
+        
+        try:
+            from ayon_activity_panel import ActivityPanel
+            from ayon_core.pipeline import get_current_project_name
+
+            project_name = get_current_project_name()
+            panel = ActivityPanel(project_name=project_name, parent=self._parent)
+
+            from qtpy.QtWidgets import QDockWidget
+            from qtpy.QtCore import Qt
+
+            dock = QDockWidget("Activity Panel", self._parent)
+            dock.setWidget(panel)
+            self._parent.addDockWidget(Qt.RightDockWidgetArea, dock)
+            dock.show()
+            
+            # Store reference
+            self._activity_panel_dock = dock
+
+            # Load statuses
+            import ayon_api
+            if project_name:
+                project_data = ayon_api.get_project(project_name)
+                statuses = project_data.get('statuses', {})
+
+                # Handle both dict and list formats
+                if isinstance(statuses, dict):
+                    status_list = [
+                        {'value': name, 'color': data.get('color', '#ffffff')}
+                        for name, data in statuses.items()
+                    ]
+                elif isinstance(statuses, list):
+                    status_list = [
+                        {'value': s.get('name', s.get('value', '')),
+                         'color': s.get('color', '#ffffff')}
+                        for s in statuses
+                    ]
+                else:
+                    status_list = []
+
+                panel.set_available_statuses(status_list)
+
+        except ImportError:
+            print("⚠️ Activity Panel addon not available")
+        except Exception as e:
+            print(f"❌ Failed to open Activity Panel: {e}")
+            import traceback
+            traceback.print_exc()
     def first_submission(self, event):
         """First submission - collect plates, EditOT, and current render versions"""
         from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
@@ -179,6 +242,9 @@ if os.getenv("AYON_RV_NO_MENU") != "1":
             data_loader()
 
         ayon_menus = AYONMenus()
+
+        # Auto-open Activity Panel
+        ayon_menus.activity_panel(None)
 
         # Auto-open Review Browser only if addon is available
         if ayon_menus._is_review_browser_available():
