@@ -35,6 +35,7 @@ for path in sys.path:
 sys.path[:] = rv_paths + non_rv_paths
 
 import PyOpenColorIO  # noqa
+
 importlib.reload(PyOpenColorIO)
 
 from qtpy import QtCore
@@ -52,7 +53,7 @@ class AYONMenus(MinorMode):
         self._activity_panel_dock = None  # Track existing panel
 
         menu_items = [
-            ("Load...", self.load, None, None),
+            ("Load...", self.load, "Ctrl+L", None),
             ("Publish...", self.publish, None, None),
             ("Manage...", self.scene_inventory, None, None),
             ("Library...", self.library, None, None),
@@ -78,7 +79,8 @@ class AYONMenus(MinorMode):
         self.init(
             name="py-ayon",
             globalBindings=None,
-            overrideBindings=[("ayon_load_container", on_ayon_load_container, "Loads an AYON representation into the session.")],
+            overrideBindings=[
+                ("ayon_load_container", on_ayon_load_container, "Loads an AYON representation into the session.")],
             menu=[("AYON", menu_items)],
             sortKey="source_setup",
             ordering=15
@@ -133,23 +135,38 @@ class AYONMenus(MinorMode):
             except:
                 # Panel was closed/deleted, create new one
                 self._activity_panel_dock = None
-        
+
         try:
             from ayon_activity_panel import ActivityPanel
             from ayon_core.pipeline import get_current_project_name
-
-            project_name = get_current_project_name()
-            panel = ActivityPanel(project_name=project_name, parent=self._parent)
-
             from qtpy.QtWidgets import QDockWidget
-            from qtpy.QtCore import Qt
+            from qtpy.QtCore import Qt, QSettings
+
+            project_name = get_current_project_name() if os.getenv("AYON_PROJECT_NAME") else None
+            panel = ActivityPanel(project_name=project_name, parent=self._parent, bind_rv_events=True)
 
             dock = QDockWidget("Activity Panel", self._parent)
             dock.setWidget(panel)
             self._parent.addDockWidget(Qt.RightDockWidgetArea, dock)
+
+            # Restore saved state
+            settings = QSettings("AYON", "ActivityPanelAddon")
+            splitter_state = settings.value("splitter_state")
+            if splitter_state:
+                panel.ui.mainSplitter.restoreState(splitter_state)
+
+            dock_geometry = settings.value("dock_geometry")
+            if dock_geometry:
+                dock.restoreGeometry(dock_geometry)
+
+            # Save state on close
+            def save_state():
+                settings.setValue("splitter_state", panel.ui.mainSplitter.saveState())
+                settings.setValue("dock_geometry", dock.saveGeometry())
+
+            dock.destroyed.connect(save_state)
+
             dock.show()
-            
-            # Store reference
             self._activity_panel_dock = dock
 
             # Load statuses
@@ -158,7 +175,6 @@ class AYONMenus(MinorMode):
                 project_data = ayon_api.get_project(project_name)
                 statuses = project_data.get('statuses', {})
 
-                # Handle both dict and list formats
                 if isinstance(statuses, dict):
                     status_list = [
                         {'value': name, 'color': data.get('color', '#ffffff')}
@@ -181,6 +197,7 @@ class AYONMenus(MinorMode):
             print(f"❌ Failed to open Activity Panel: {e}")
             import traceback
             traceback.print_exc()
+
     def first_submission(self, event):
         """First submission - collect plates, EditOT, and current render versions"""
         from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
@@ -218,7 +235,6 @@ def on_ayon_load_container(event):
 
 
 def load_data(dataset=None):
-
     project_name = get_current_project_name()
     available_loaders = discover_loader_plugins(project_name)
     Loader = next(loader for loader in available_loaders
@@ -229,6 +245,7 @@ def load_data(dataset=None):
 
     for representation in representations:
         load_container(Loader, representation)
+
 
 # only add menu items if AYON_RV_NO_MENU is not set to 1
 if os.getenv("AYON_RV_NO_MENU") != "1":

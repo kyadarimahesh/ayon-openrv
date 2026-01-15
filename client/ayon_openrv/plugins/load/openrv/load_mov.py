@@ -54,39 +54,32 @@ class MovLoader(load.LoaderPlugin):
         self._register_with_rv_operations(node, filepath, context)
 
     def _register_with_rv_operations(self, node, filepath, context):
-        """Fire RV event for source loaded - decoupled from Review Browser."""
+        """Fire RV event for source loaded with multi-version support."""
+        print(f"\n🚀 [load_mov] _register_with_rv_operations called")
+        print(f"   node: {node}")
+        print(f"   filepath: {filepath}")
         try:
             import json
+            from ayon_openrv.plugins.load.openrv.loader_utils import build_event_data_with_versions
 
-            version_id = context['representation']['versionId']
-            version_doc = context['version']
-            
-            # Build event data
-            event_data = {
-                'node': node,
-                'filepath': filepath,
-                'version_id': version_id,
-                'task_id': version_doc['taskId'],
-                'product': context['product']['name'],
-                'folder_path': context['folder']['path'],
-                'project_name': context['project']['name'],
-                'path': context['folder']['path'],
-                'current_version': f"v{version_doc.get('version', 1):03d}",
-                'versions': [f"v{version_doc.get('version', 1):03d}"],
-                'version_status': version_doc.get('status', 'N/A'),
-                'author': version_doc.get('author', 'N/A')
-            }
+            print(f"📦 [load_mov] Building event data...")
+            event_data = build_event_data_with_versions(context, filepath, self.log)
+            event_data['node'] = node
 
-            # Fire custom RV event (decoupled - no import needed)
+            print(f"📤 [load_mov] Sending ayon_source_loaded event...")
             rv.commands.sendInternalEvent(
                 "ayon_source_loaded",
                 json.dumps(event_data)
             )
-            
-            self.log.info(f"Fired ayon_source_loaded event for: {filepath}")
+
+            version_count = len(event_data.get('all_product_versions', []))
+            print(f"✅ [load_mov] Event sent successfully with {version_count} versions")
+            self.log.info(f"Fired ayon_source_loaded event with {version_count} versions")
 
         except Exception as e:
-            # Graceful failure - media still loads
+            print(f"❌ [load_mov] Error: {e}")
+            import traceback
+            traceback.print_exc()
             self.log.debug(f"Could not fire source loaded event: {e}")
 
     def _finalize_loaded_node(self, loaded_node, rep_name, filepath):
