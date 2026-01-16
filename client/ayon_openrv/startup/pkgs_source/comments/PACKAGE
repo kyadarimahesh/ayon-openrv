@@ -8,10 +8,7 @@ requires: ''
 optional: true
 
 modes:
-  - file: comments.py
-    menu: AYON/Review
-    shortcut: 
-    event: 
+  - file: comments
     load: immediate
 
 description: |

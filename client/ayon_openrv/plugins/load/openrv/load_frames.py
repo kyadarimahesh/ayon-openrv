@@ -37,25 +37,17 @@ class FramesLoader(load.LoaderPlugin):
         options: dict | None = None,
     ) -> None:
         """Load the frames into OpenRV."""
-        print(f"\n🎬 [FramesLoader] Loading frames...")
-        print(f"   Product: {context.get('product', {}).get('name')}")
-        print(f"   Version: {context.get('version', {}).get('name')}")
-        print(f"   Namespace: {namespace}")
-        
         filepath = rv.commands.sequenceOfFile(
             self.filepath_from_context(context),
         )[0]
 
         rep_name = os.path.basename(filepath)
-        print(f"   Rep name: {rep_name}")
 
         # change path
         namespace = namespace or context["folder"]["name"]
         loaded_node = rv.commands.addSourceVerbose([filepath])
-        print(f"   Loaded node: {loaded_node}")
 
         node = self._finalize_loaded_node(loaded_node, rep_name, filepath)
-        print(f"   Final node: {node}")
 
         # update colorspace
         self.set_representation_colorspace(node, context["representation"])
@@ -67,11 +59,9 @@ class FramesLoader(load.LoaderPlugin):
             context=context,
             loader=self.__class__.__name__,
         )
-        print(f"   Container imprinted")
-        
+
         # Register with RV Operations for activity panel integration
         self._register_with_rv_operations(node, filepath, context)
-        print(f"✅ [FramesLoader] Load complete\n")
 
     def _register_with_rv_operations(self, node, filepath, context):
         """Store version metadata and fire RV event."""
@@ -98,10 +88,6 @@ class FramesLoader(load.LoaderPlugin):
     def _store_version_metadata(node, context, event_data=None):
         """Store version metadata in RV source node."""
         import json
-        
-        print(f"\n💾 [LOADER] === STORING METADATA ON NODE ===")
-        print(f"   Node: {node}")
-        
         version = context.get("version", {})
         product = context.get("product", {})
         folder = context.get("folder", {})
@@ -119,33 +105,19 @@ class FramesLoader(load.LoaderPlugin):
             'author': version.get("author"),
             'project_name': context.get("project", {}).get("name")
         }
-        
-        print(f"   📋 Basic Metadata:")
-        print(f"      version_id: {metadata['version_id']}")
-        print(f"      version_name: {metadata['version_name']}")
-        print(f"      product_name: {metadata['product_name']}")
-        print(f"      file_path: {metadata['file_path']}")
-        print(f"      author: {metadata['author']}")
-        print(f"      status: {metadata['version_status']}")
-        
+
         # Add versions data if available from event_data
         if event_data:
             metadata['versions'] = json.dumps(event_data.get('versions', []))
             metadata['all_product_versions'] = json.dumps(event_data.get('all_product_versions', []))
             metadata['representations'] = json.dumps(event_data.get('representations', []))
-            print(f"   📦 Extended Metadata:")
-            print(f"      versions: {event_data.get('versions', [])}")
-            print(f"      all_product_versions count: {len(event_data.get('all_product_versions', []))}")
-            print(f"      representations count: {len(event_data.get('representations', []))}")
-        
+
         for key, value in metadata.items():
             if value:
                 prop = f"{node}.ayon.{key}"
                 if not rv.commands.propertyExists(prop):
                     rv.commands.newProperty(prop, rv.commands.StringType, 1)
                 rv.commands.setStringProperty(prop, [value], True)
-        
-        print(f"✅ [LOADER] Metadata stored on node\n")
 
     def _finalize_loaded_node(self, loaded_node, rep_name, filepath):
         """Finalize the loaded node in OpenRV.

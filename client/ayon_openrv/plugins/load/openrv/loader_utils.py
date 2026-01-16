@@ -12,7 +12,6 @@ def fetch_all_product_versions(project_name, product_id, logger):
     Returns:
         List of version nodes sorted by version number (descending)
     """
-    print(f"🔍 [loader_utils] Fetching all versions for product: {product_id}")
     try:
         import os
         import requests
@@ -22,9 +21,7 @@ def fetch_all_product_versions(project_name, product_id, logger):
         
         if not url or not api_key:
             raise Exception("Missing AYON_SERVER_URL or AYON_API_KEY")
-        
-        print(f"✅ [loader_utils] Using URL: {url}")
-        
+
         query = """
         query GetProductVersions($projectName: String!, $productId: String!) {
           project(name: $projectName) {
@@ -59,8 +56,7 @@ def fetch_all_product_versions(project_name, product_id, logger):
         """
         
         variables = {"projectName": project_name, "productId": product_id}
-        print(f"📤 [loader_utils] Sending GraphQL query with variables: {variables}")
-        
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}"
@@ -74,10 +70,7 @@ def fetch_all_product_versions(project_name, product_id, logger):
         )
         response.raise_for_status()
         result = response.json()
-        
-        print(f"📥 [loader_utils] Got response")
-        print(f"🔍 [loader_utils] Response keys: {result.keys()}")
-        
+
         versions = []
         edges = result.get('data', {}).get('project', {}).get('product', {}).get('versions', {}).get('edges', [])
         print(f"📊 [loader_utils] Found {len(edges)} version edges")
@@ -112,32 +105,23 @@ def build_event_data_with_versions(context, filepath, logger):
         Dict with event data including all versions
     """
     import json
-    
-    print(f"🔧 [loader_utils] Building event data for: {filepath}")
-    
+
     version_id = context['representation']['versionId']
     version_doc = context['version']
     project_name = context['project']['name']
     product_id = context['product']['id']
     product_name = context['product']['name']
-    
-    print(f"📋 [loader_utils] version_id: {version_id}")
-    print(f"📋 [loader_utils] project: {project_name}")
-    print(f"📋 [loader_utils] product_id: {product_id}")
-    
+
     # Fetch all versions for this product
     all_product_versions = fetch_all_product_versions(project_name, product_id, logger)
-    print(f"📦 [loader_utils] Got {len(all_product_versions)} product versions")
-    
+
     # Build versions list for dropdown
     versions = [f"v{v['version']:03d}" for v in all_product_versions] if all_product_versions else [f"v{version_doc.get('version', 1):03d}"]
-    print(f"📝 [loader_utils] Version list: {versions}")
-    
+
     # Get current version representations
     representations = []
     try:
         from ayon_api import get_representations
-        print(f"🔍 [loader_utils] Fetching representations for version: {version_id}")
         version_representations = get_representations(project_name, version_ids=[version_id])
         for rep in version_representations:
             representations.append({
@@ -166,10 +150,5 @@ def build_event_data_with_versions(context, filepath, logger):
         'representations': representations,
         'current_representation_path': filepath
     }
-    
-    print(f"✅ [loader_utils] Event data built successfully")
-    print(f"   - versions: {len(versions)} items")
-    print(f"   - all_product_versions: {len(all_product_versions)} items")
-    print(f"   - representations: {len(representations)} items")
-    
+
     return event_data

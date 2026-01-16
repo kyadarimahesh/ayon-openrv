@@ -1,6 +1,6 @@
 name = "openrv"
 title = "OpenRV"
-version = "1.1.5"
+version = "2.0.0"
 app_host_name = "openrv"
 client_dir = "ayon_openrv"
 

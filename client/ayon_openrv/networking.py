@@ -56,7 +56,8 @@ class RVConnector:
                     f"Timeout reached. Tried with {self.host = } "
                     f"{self.port =  } {self.name = } \n\n"
                     "Check your RV settings and make sure networking "
-                    "port is aligned with AYON OpenRV settings."
+                    "port is aligned with AYON OpenRV settings. "
+                    "Ensure RV is launched with '-network' argument."
                 )
             self.connect()
             if not self.is_connected:

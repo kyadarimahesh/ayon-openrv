@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import importlib
+import traceback
 
 import rv.qtutils
 from rv.rvtypes import MinorMode
@@ -35,7 +36,6 @@ for path in sys.path:
 sys.path[:] = rv_paths + non_rv_paths
 
 import PyOpenColorIO  # noqa
-
 importlib.reload(PyOpenColorIO)
 
 from qtpy import QtCore
@@ -169,6 +169,9 @@ class AYONMenus(MinorMode):
             dock.show()
             self._activity_panel_dock = dock
 
+            # Enable RV events immediately when user opens panel
+            panel.enable_rv_events()
+
             # Load statuses
             import ayon_api
             if project_name:
@@ -195,7 +198,6 @@ class AYONMenus(MinorMode):
             print("⚠️ Activity Panel addon not available")
         except Exception as e:
             print(f"❌ Failed to open Activity Panel: {e}")
-            import traceback
             traceback.print_exc()
 
     def first_submission(self, event):
@@ -235,6 +237,7 @@ def on_ayon_load_container(event):
 
 
 def load_data(dataset=None):
+
     project_name = get_current_project_name()
     available_loaders = discover_loader_plugins(project_name)
     Loader = next(loader for loader in available_loaders
@@ -246,27 +249,24 @@ def load_data(dataset=None):
     for representation in representations:
         load_container(Loader, representation)
 
-
 # only add menu items if AYON_RV_NO_MENU is not set to 1
 if os.getenv("AYON_RV_NO_MENU") != "1":
     def createMode():
-        # This function triggers for each RV session window being opened, for
-        # example when using File > New Session this will trigger again. As such
-        # we only want to trigger the startup install when the host is not
-        # registered yet.
-        if not registered_host():
-            install_host_in_ayon()
-            data_loader()
+        try:
+            if not registered_host():
+                install_host_in_ayon()
+                data_loader()
 
-        ayon_menus = AYONMenus()
+            ayon_menus = AYONMenus()
 
-        # Auto-open Activity Panel
-        ayon_menus.activity_panel(None)
+            # Auto-open Review Browser only if addon is available
+            if ayon_menus._is_review_browser_available():
+                ayon_menus.review_browser(None)
 
-        # Auto-open Review Browser only if addon is available
-        if ayon_menus._is_review_browser_available():
-            ayon_menus.review_browser(None)
-
-        # Maximize RV window
-        rv.qtutils.sessionWindow().showMaximized()
-        return ayon_menus
+            # Maximize RV window
+            rv.qtutils.sessionWindow().showMaximized()
+            return ayon_menus
+        except Exception as e:
+            print(f"❌ FATAL ERROR in createMode: {e}")
+            traceback.print_exc()
+            raise

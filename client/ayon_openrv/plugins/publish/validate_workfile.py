@@ -1,32 +1,17 @@
 import pyblish.api
 
-from ayon_core.pipeline import registered_host
 from ayon_core.pipeline.publish import PublishValidationError
-from ayon_core.pipeline.workfile import save_next_version
 
 
 class ValidateCurrentWorkFile(pyblish.api.InstancePlugin):
-    """Auto-save workfile if not saved, then validate."""
+    """There must be workfile to publish."""
 
     label = "Validate Workfile"
     order = pyblish.api.ValidatorOrder - 0.1
     hosts = ["openrv"]
-    families = ["workfile", "review"]
+    families = ["workfile"]
 
     def process(self, instance):
-        host = registered_host()
-        current_file = host.get_current_workfile()
-
-        # If no workfile, save it now for any publish type
+        current_file = instance.context.data["currentFile"]
         if not current_file:
-            try:
-                save_next_version()
-                current_file = host.get_current_workfile()
-                instance.context.data["currentFile"] = current_file
-                instance.context.data["workfileWasCreated"] = True
-            except Exception as e:
-                raise PublishValidationError(f"Failed to save workfile: {str(e)}")
-        
-        if not current_file:
-            raise PublishValidationError("No workfile available to publish.")
-
+            raise PublishValidationError("There is no workfile to publish.")
