@@ -5,6 +5,7 @@ import os
 from typing import ClassVar
 
 from ayon_core.pipeline import load
+from ayon_core.pipeline.load import get_representation_path
 from ayon_openrv.api.ocio import (
     set_group_ocio_active_state,
     set_group_ocio_colorspace,
@@ -31,13 +32,21 @@ class MovLoader(load.LoaderPlugin):
         namespace: str | None = None,
         options: dict | None = None,
     ) -> None:
+        print(f"\n🎬 [MovLoader] Loading MOV...")
+        print(f"   Product: {context.get('product', {}).get('name')}")
+        print(f"   Version: {context.get('version', {}).get('name')}")
+        print(f"   Namespace: {namespace}")
+        
         filepath = self.filepath_from_context(context)
         namespace = namespace if namespace else context["folder"]["name"]
         rep_name = os.path.basename(filepath)
+        print(f"   Rep name: {rep_name}")
 
         loaded_node = rv.commands.addSourceVerbose([filepath])
+        print(f"   Loaded node: {loaded_node}")
 
         node = self._finalize_loaded_node(loaded_node, rep_name, filepath)
+        print(f"   Final node: {node}")
 
         # update colorspace
         self.set_representation_colorspace(node, context["representation"])
@@ -49,38 +58,85 @@ class MovLoader(load.LoaderPlugin):
             context=context,
             loader=self.__class__.__name__,
         )
+        print(f"   Container imprinted")
 
         # Register with RV Operations for activity panel integration
         self._register_with_rv_operations(node, filepath, context)
+        print(f"✅ [MovLoader] Load complete\n")
 
     def _register_with_rv_operations(self, node, filepath, context):
-        """Fire RV event for source loaded with multi-version support."""
-        print(f"\n🚀 [load_mov] _register_with_rv_operations called")
-        print(f"   node: {node}")
-        print(f"   filepath: {filepath}")
+        """Store version metadata and fire RV event."""
+        # Build event data first to get versions list
+        event_data = None
         try:
             import json
             from ayon_openrv.plugins.load.openrv.loader_utils import build_event_data_with_versions
 
-            print(f"📦 [load_mov] Building event data...")
             event_data = build_event_data_with_versions(context, filepath, self.log)
             event_data['node'] = node
 
-            print(f"📤 [load_mov] Sending ayon_source_loaded event...")
-            rv.commands.sendInternalEvent(
-                "ayon_source_loaded",
-                json.dumps(event_data)
-            )
+            # Store metadata including versions from event data
+            self._store_version_metadata(node, context, event_data)
 
-            version_count = len(event_data.get('all_product_versions', []))
-            print(f"✅ [load_mov] Event sent successfully with {version_count} versions")
-            self.log.info(f"Fired ayon_source_loaded event with {version_count} versions")
-
+            rv.commands.sendInternalEvent("ayon_source_loaded", json.dumps(event_data))
+            self.log.info(f"Fired ayon_source_loaded event with {len(event_data.get('all_product_versions', []))} versions")
         except Exception as e:
-            print(f"❌ [load_mov] Error: {e}")
-            import traceback
-            traceback.print_exc()
+            # Fallback: store basic metadata without versions
+            self._store_version_metadata(node, context, None)
             self.log.debug(f"Could not fire source loaded event: {e}")
+
+    @staticmethod
+    def _store_version_metadata(node, context, event_data=None):
+        """Store version metadata in RV source node."""
+        import json
+        
+        print(f"\n💾 [LOADER] === STORING METADATA ON NODE ===")
+        print(f"   Node: {node}")
+        
+        version = context.get("version", {})
+        product = context.get("product", {})
+        folder = context.get("folder", {})
+        
+        metadata = {
+            'version_id': version.get("id"),
+            'representation_id': context.get("representation", {}).get("id"),
+            'file_path': get_representation_path(context["representation"]),
+            'product_id': product.get("id"),
+            'product_name': product.get("name"),
+            'task_id': version.get("taskId"),
+            'folder_path': folder.get("path"),
+            'version_name': version.get("name"),
+            'version_status': version.get("status"),
+            'author': version.get("author"),
+            'project_name': context.get("project", {}).get("name")
+        }
+        
+        print(f"   📋 Basic Metadata:")
+        print(f"      version_id: {metadata['version_id']}")
+        print(f"      version_name: {metadata['version_name']}")
+        print(f"      product_name: {metadata['product_name']}")
+        print(f"      file_path: {metadata['file_path']}")
+        print(f"      author: {metadata['author']}")
+        print(f"      status: {metadata['version_status']}")
+        
+        # Add versions data if available from event_data
+        if event_data:
+            metadata['versions'] = json.dumps(event_data.get('versions', []))
+            metadata['all_product_versions'] = json.dumps(event_data.get('all_product_versions', []))
+            metadata['representations'] = json.dumps(event_data.get('representations', []))
+            print(f"   📦 Extended Metadata:")
+            print(f"      versions: {event_data.get('versions', [])}")
+            print(f"      all_product_versions count: {len(event_data.get('all_product_versions', []))}")
+            print(f"      representations count: {len(event_data.get('representations', []))}")
+        
+        for key, value in metadata.items():
+            if value:
+                prop = f"{node}.ayon.{key}"
+                if not rv.commands.propertyExists(prop):
+                    rv.commands.newProperty(prop, rv.commands.StringType, 1)
+                rv.commands.setStringProperty(prop, [value], True)
+        
+        print(f"✅ [LOADER] Metadata stored on node\n")
 
     def _finalize_loaded_node(self, loaded_node, rep_name, filepath):
         """Finalize the loaded node in OpenRV.
