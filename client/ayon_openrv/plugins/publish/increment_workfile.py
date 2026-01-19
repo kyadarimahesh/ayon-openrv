@@ -16,7 +16,7 @@ class IncrementWorkfile(pyblish.api.InstancePlugin):
     label = "Increment Workfile"
     order = pyblish.api.IntegratorOrder + 9.0
     hosts = ["openrv"]
-    families = ["workfile", "review"]
+    families = ["workfile"]
     optional = True
 
     def process(self, instance):

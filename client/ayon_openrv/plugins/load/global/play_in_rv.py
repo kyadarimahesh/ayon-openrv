@@ -9,7 +9,7 @@ from ayon_core.lib.transcoding import (
 from ayon_core.pipeline import load
 from ayon_core.pipeline.load import LoadError
 
-from ayon_openrv.networking import RVConnector
+from ayon_openrv.networking import RVConnector, FailedToConnectError
 
 
 class PlayInRV(load.LoaderPlugin):

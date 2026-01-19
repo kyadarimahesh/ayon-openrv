@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import importlib
+import traceback
 
 import rv.qtutils
 from rv.rvtypes import MinorMode
@@ -18,6 +19,8 @@ from ayon_core.pipeline import (
 )
 from ayon_openrv.api import OpenRVHost
 from ayon_openrv.networking import LoadContainerHandler
+
+from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
 
 # TODO (Critical) Remove this temporary hack to avoid clash with PyOpenColorIO
 #   that is contained within AYON's venv
@@ -47,33 +50,47 @@ class AYONMenus(MinorMode):
 
     def __init__(self):
         MinorMode.__init__(self)
+
+        menu_items = [
+            ("Load...", self.load, "Ctrl+L", None),
+            ("Publish...", self.publish, None, None),
+            ("Manage...", self.scene_inventory, None, None),
+            ("Library...", self.library, None, None),
+            ("Activity Panel...", self.activity_panel, "Ctrl+A", None),
+        ]
+
+        if self._is_review_browser_available():
+            menu_items.append(("Review Browser...", self.review_browser, "Ctrl+R", None))
+        else:
+            menu_items.append(("Collect Review Inputs", [
+                ("First submission", self.first_submission, None, None),
+                ("Resubmission", self.resubmission, None, None),
+            ]))
+
+        menu_items.extend([
+            ("_", None),
+            ("Work Files...", self.workfiles, None, None),
+        ])
+
         self.init(
             name="py-ayon",
             globalBindings=None,
             overrideBindings=[
-                # event name, callback, description
-                ("ayon_load_container", on_ayon_load_container, "Loads an AYON representation into the session.")
-            ],
-            menu=[
-                # Menu name
-                # NOTE: If it already exists it will merge with existing
-                # and add submenus / menuitems to the existing one
-                ("AYON", [
-                    # Menuitem name, actionHook (event), key, stateHook
-                    ("Load...", self.load, None, None),
-                    ("Publish...", self.publish, None, None),
-                    ("Manage...", self.scene_inventory, None, None),
-                    ("Library...", self.library, None, None),
-                    ("_", None),  # separator
-                    ("Work Files...", self.workfiles, None, None),
-                    ("_", None),  # separator
-                    ("Activity Stream...", self.activity_stream, None, None),
-                ])
-            ],
-            # initialization order
+                ("ayon_load_container", on_ayon_load_container, "Loads an AYON representation into the session.")],
+            menu=[("AYON", menu_items)],
             sortKey="source_setup",
             ordering=15
         )
+
+    def _is_review_browser_available(self):
+        """Check if Review Browser should be shown."""
+        if not os.getenv("AYON_FOLDER_PATH"):
+            try:
+                import ayon_review_browser
+                return True
+            except ImportError:
+                return False
+        return False
 
     @property
     def _parent(self):
@@ -82,9 +99,22 @@ class AYONMenus(MinorMode):
     def load(self, event):
         host_tools.show_loader(parent=self._parent, use_context=True)
 
+    def review_browser(self, event):
+        from ayon_review_browser import show_review_browser
+        show_review_browser(parent=self._parent)
+
     def publish(self, event):
-        host_tools.show_publisher(parent=self._parent,
-                                  tab="publish")
+        from qtpy import QtWidgets
+        reply = QtWidgets.QMessageBox.question(
+            self._parent,
+            "Send for Review?",
+            "Do you want to send this publish for review?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.Yes
+        )
+        if reply == QtWidgets.QMessageBox.Yes:
+            os.environ["AYON_PUBLISH_FOR_REVIEW"] = "1"
+        host_tools.show_publisher(parent=self._parent, tab="publish")
 
     def workfiles(self, event):
         host_tools.show_workfiles(parent=self._parent)
@@ -95,26 +125,21 @@ class AYONMenus(MinorMode):
     def library(self, event):
         host_tools.show_library_loader(parent=self._parent)
 
-    def activity_stream(self, event):
-        print("Activity Stream clicked")
-        
+    def activity_panel(self, event):
         try:
-            # Since ayon_ui_qt is now in PYTHONPATH (set by pre-launch hook),
-            # we can import it directly without any path manipulation
-            from ayon_ui_qt.activity_stream import AYActivityStream
-            print("Successfully imported AYActivityStream")
-            
-            # Create and show the activity stream widget
-            activity_widget = AYActivityStream(parent=self._parent)
-            activity_widget.show()
-            print("Activity Stream widget created and shown")
-            
-        except ImportError as e:
-            print(f"Failed to import AYActivityStream: {e}")
-            print("Make sure the pre-launch hook has run and added ayon_ui_qt to PYTHONPATH")
+            from ayon_activity_panel import show_activity_panel
+            show_activity_panel(parent=self._parent, bind_rv_events=True)
+        except ImportError:
+            print("⚠️ Activity Panel addon not available")
         except Exception as e:
-            print(f"Error creating Activity Stream widget: {e}")
+            print(f"❌ Failed to open Activity Panel: {e}")
+            traceback.print_exc()
 
+    def first_submission(self, event):
+        ReviewSubmissionHandler.collect_review_inputs(self._parent, is_resubmission=False)
+
+    def resubmission(self, event):
+        ReviewSubmissionHandler.collect_review_inputs(self._parent, is_resubmission=True)
 
 
 def data_loader():
@@ -136,7 +161,6 @@ def on_ayon_load_container(event):
 
 
 def load_data(dataset=None):
-
     project_name = get_current_project_name()
     available_loaders = discover_loader_plugins(project_name)
     Loader = next(loader for loader in available_loaders
@@ -148,14 +172,24 @@ def load_data(dataset=None):
     for representation in representations:
         load_container(Loader, representation)
 
+
 # only add menu items if AYON_RV_NO_MENU is not set to 1
 if os.getenv("AYON_RV_NO_MENU") != "1":
     def createMode():
-        # This function triggers for each RV session window being opened, for
-        # example when using File > New Session this will trigger again. As such
-        # we only want to trigger the startup install when the host is not
-        # registered yet.
-        if not registered_host():
-            install_host_in_ayon()
-            data_loader()
-        return AYONMenus()
+        try:
+            if not registered_host():
+                install_host_in_ayon()
+                data_loader()
+
+            ayon_menus = AYONMenus()
+
+            if ayon_menus._is_review_browser_available():
+                ayon_menus.review_browser(None)
+
+            # Maximize RV window
+            rv.qtutils.sessionWindow().showMaximized()
+            return ayon_menus
+        except Exception as e:
+            print(f"❌ FATAL ERROR in createMode: {e}")
+            traceback.print_exc()
+            raise

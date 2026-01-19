@@ -29,11 +29,11 @@ class MovLoader(load.LoaderPlugin):
     color = "orange"
 
     def load(
-            self,
-            context: dict,
-            name: str | None = None,
-            namespace: str | None = None,
-            options: dict | None = None,
+        self,
+        context: dict,
+        name: str | None = None,
+        namespace: str | None = None,
+        options: dict | None = None,
     ) -> None:
         filepath = self.filepath_from_context(context)
         namespace = namespace if namespace else context["folder"]["name"]
