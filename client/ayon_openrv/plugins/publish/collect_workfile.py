@@ -10,7 +10,7 @@ class CollectWorkfile(pyblish.api.InstancePlugin):
     order = pyblish.api.CollectorOrder - 0.49
     label = "OpenRV Session Workfile"
     hosts = ["openrv"]
-    families = ["workfile"]
+    families = ["workfile", "review"]
 
     def process(self, instance):
         """Inject the current working file"""
@@ -27,6 +27,16 @@ class CollectWorkfile(pyblish.api.InstancePlugin):
             self.log.error("No current filepath detected. "
                            "Make sure to save your OpenRV session")
             return
+
+        # Check if this is a review submission
+        is_review = os.getenv("AYON_PUBLISH_FOR_REVIEW") == "1"
+
+        if is_review:
+            instance.data["family"] = "review"
+            instance.data["families"] = ["review"]
+            self.log.info("Publishing as 'review' product type")
+        else:
+            self.log.info("Publishing as 'workfile' product type")
 
         instance.data["representations"] = [{
             "name": ext.lstrip("."),

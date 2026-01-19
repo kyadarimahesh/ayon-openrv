@@ -1,3 +1,4 @@
+import os
 import qtawesome
 import ayon_api
 
@@ -30,13 +31,22 @@ class OpenRVWorkfileCreator(AutoCreator):
         if not data:
             return
 
+        # Check if this is a review submission
+        is_review = os.getenv("AYON_PUBLISH_FOR_REVIEW") == "1"
+        product_type = "review" if is_review else self.product_type
+        
         product_name = data["productName"]
         instance = CreatedInstance(
-            product_type=self.product_type,
+            product_type=product_type,
             product_name=product_name,
             data=data,
             creator=self
         )
+        
+        # Set family for review submission
+        if is_review:
+            instance.data["family"] = "review"
+            instance.data["families"] = ["review"]
 
         self._add_instance_to_context(instance)
 
@@ -92,9 +102,19 @@ class OpenRVWorkfileCreator(AutoCreator):
                 None,
             ))
 
+            # Check if this is a review submission
+            is_review = os.getenv("AYON_PUBLISH_FOR_REVIEW") == "1"
+            product_type = "review" if is_review else self.product_type
+            
             new_instance = CreatedInstance(
-                self.product_type, product_name, data, self
+                product_type, product_name, data, self
             )
+            
+            # Set family for review submission
+            if is_review:
+                new_instance.data["family"] = "review"
+                new_instance.data["families"] = ["review"]
+            
             self._add_instance_to_context(new_instance)
 
         elif (

@@ -41,7 +41,7 @@ import PyOpenColorIO  # noqa
 
 importlib.reload(PyOpenColorIO)
 
-from qtpy import QtCore
+from qtpy import QtCore, QtWidgets
 
 
 def install_host_in_ayon():
@@ -107,6 +107,19 @@ class AYONMenus(MinorMode):
         show_review_browser(parent=self._parent)
 
     def publish(self, event):
+        """Show publish with review submission option"""
+        reply = QtWidgets.QMessageBox.question(
+            self._parent,
+            "Publish Type",
+            "Is this a review submission?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+        )
+
+        if reply == QtWidgets.QMessageBox.Yes:
+            os.environ["AYON_PUBLISH_FOR_REVIEW"] = "1"
+        else:
+            os.environ.pop("AYON_PUBLISH_FOR_REVIEW", None)
+
         host_tools.show_publisher(parent=self._parent, tab="publish")
 
     def workfiles(self, event):
