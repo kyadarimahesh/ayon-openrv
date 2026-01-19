@@ -2,7 +2,6 @@ import os
 import json
 import sys
 import importlib
-import traceback
 
 import rv.qtutils
 from rv.rvtypes import MinorMode
