@@ -1,5 +1,9 @@
 """Shared utilities for OpenRV loaders."""
 
+import json
+import rv
+from ayon_core.pipeline.load import get_representation_path
+
 
 def fetch_all_product_versions(project_name, product_id, logger):
     """Fetch all versions for a product using GraphQL.
@@ -152,3 +156,52 @@ def build_event_data_with_versions(context, filepath, logger):
     }
 
     return event_data
+
+
+def register_with_rv_operations(node, filepath, context, logger):
+    """Store version metadata and fire RV event."""
+    event_data = None
+    try:
+        event_data = build_event_data_with_versions(context, filepath, logger)
+        event_data['node'] = node
+        
+        store_version_metadata(node, context, event_data)
+        
+        rv.commands.sendInternalEvent("ayon_source_loaded", json.dumps(event_data))
+        logger.info(f"Fired ayon_source_loaded event with {len(event_data.get('all_product_versions', []))} versions")
+    except Exception as e:
+        store_version_metadata(node, context, None)
+        logger.debug(f"Could not fire source loaded event: {e}")
+
+
+def store_version_metadata(node, context, event_data=None):
+    """Store version metadata in RV source node."""
+    version = context.get("version", {})
+    product = context.get("product", {})
+    folder = context.get("folder", {})
+    
+    metadata = {
+        'version_id': version.get("id"),
+        'representation_id': context.get("representation", {}).get("id"),
+        'file_path': get_representation_path(context["representation"]),
+        'product_id': product.get("id"),
+        'product_name': product.get("name"),
+        'task_id': version.get("taskId"),
+        'folder_path': folder.get("path"),
+        'version_name': version.get("name"),
+        'version_status': version.get("status"),
+        'author': version.get("author"),
+        'project_name': context.get("project", {}).get("name")
+    }
+
+    if event_data:
+        metadata['versions'] = json.dumps(event_data.get('versions', []))
+        metadata['all_product_versions'] = json.dumps(event_data.get('all_product_versions', []))
+        metadata['representations'] = json.dumps(event_data.get('representations', []))
+
+    for key, value in metadata.items():
+        if value:
+            prop = f"{node}.ayon.{key}"
+            if not rv.commands.propertyExists(prop):
+                rv.commands.newProperty(prop, rv.commands.StringType, 1)
+            rv.commands.setStringProperty(prop, [value], True)

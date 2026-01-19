@@ -20,6 +20,8 @@ from ayon_core.pipeline import (
 from ayon_openrv.api import OpenRVHost
 from ayon_openrv.networking import LoadContainerHandler
 
+from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
+
 # TODO (Critical) Remove this temporary hack to avoid clash with PyOpenColorIO
 #   that is contained within AYON's venv
 # Ensure PyOpenColorIO is loaded from RV instead of from AYON lib by
@@ -36,6 +38,7 @@ for path in sys.path:
 sys.path[:] = rv_paths + non_rv_paths
 
 import PyOpenColorIO  # noqa
+
 importlib.reload(PyOpenColorIO)
 
 from qtpy import QtCore
@@ -50,7 +53,6 @@ class AYONMenus(MinorMode):
 
     def __init__(self):
         MinorMode.__init__(self)
-        self._activity_panel_dock = None  # Track existing panel
 
         menu_items = [
             ("Load...", self.load, "Ctrl+L", None),
@@ -63,13 +65,10 @@ class AYONMenus(MinorMode):
         if self._is_review_browser_available():
             menu_items.append(("Review Browser...", self.review_browser, "Ctrl+R", None))
         else:
-            menu_items.extend([
-                ("Collect Review Inputs", [
-                    ("First submission", self.first_submission, None, None),
-                    ("Resubmission", self.resubmission, None, None),
-                ]),
-                ("Publish Review", self.publish_review, None, None)
-            ])
+            menu_items.append(("Collect Review Inputs", [
+                ("First submission", self.first_submission, None, None),
+                ("Resubmission", self.resubmission, None, None),
+            ]))
 
         menu_items.extend([
             ("_", None),
@@ -88,7 +87,6 @@ class AYONMenus(MinorMode):
 
     def _is_review_browser_available(self):
         """Check if Review Browser should be shown."""
-        # Only show Review Browser menu if no folder context (launched standalone)
         if not os.getenv("AYON_FOLDER_PATH"):
             try:
                 import ayon_review_browser
@@ -105,13 +103,11 @@ class AYONMenus(MinorMode):
         host_tools.show_loader(parent=self._parent, use_context=True)
 
     def review_browser(self, event):
-        from ayon_review_browser import ReviewBrowser
-        window = ReviewBrowser()
-        window.showMaximized()
+        from ayon_review_browser import show_review_browser
+        show_review_browser(parent=self._parent)
 
     def publish(self, event):
-        host_tools.show_publisher(parent=self._parent,
-                                  tab="publish")
+        host_tools.show_publisher(parent=self._parent, tab="publish")
 
     def workfiles(self, event):
         host_tools.show_workfiles(parent=self._parent)
@@ -123,77 +119,9 @@ class AYONMenus(MinorMode):
         host_tools.show_library_loader(parent=self._parent)
 
     def activity_panel(self, event):
-        """Show Activity Panel (or bring to front if already exists)."""
-        # Check if panel already exists
-        if self._activity_panel_dock is not None:
-            try:
-                # Bring existing panel to front
-                self._activity_panel_dock.show()
-                self._activity_panel_dock.raise_()
-                print("✅ Activity Panel already open, bringing to front")
-                return
-            except:
-                # Panel was closed/deleted, create new one
-                self._activity_panel_dock = None
-
         try:
-            from ayon_activity_panel import ActivityPanel
-            from ayon_core.pipeline import get_current_project_name
-            from qtpy.QtWidgets import QDockWidget
-            from qtpy.QtCore import Qt, QSettings
-
-            project_name = get_current_project_name() if os.getenv("AYON_PROJECT_NAME") else None
-            panel = ActivityPanel(project_name=project_name, parent=self._parent, bind_rv_events=True)
-
-            dock = QDockWidget("Activity Panel", self._parent)
-            dock.setWidget(panel)
-            self._parent.addDockWidget(Qt.RightDockWidgetArea, dock)
-
-            # Restore saved state
-            settings = QSettings("AYON", "ActivityPanelAddon")
-            splitter_state = settings.value("splitter_state")
-            if splitter_state:
-                panel.ui.mainSplitter.restoreState(splitter_state)
-
-            dock_geometry = settings.value("dock_geometry")
-            if dock_geometry:
-                dock.restoreGeometry(dock_geometry)
-
-            # Save state on close
-            def save_state():
-                settings.setValue("splitter_state", panel.ui.mainSplitter.saveState())
-                settings.setValue("dock_geometry", dock.saveGeometry())
-
-            dock.destroyed.connect(save_state)
-
-            dock.show()
-            self._activity_panel_dock = dock
-
-            # Enable RV events immediately when user opens panel
-            panel.enable_rv_events()
-
-            # Load statuses
-            import ayon_api
-            if project_name:
-                project_data = ayon_api.get_project(project_name)
-                statuses = project_data.get('statuses', {})
-
-                if isinstance(statuses, dict):
-                    status_list = [
-                        {'value': name, 'color': data.get('color', '#ffffff')}
-                        for name, data in statuses.items()
-                    ]
-                elif isinstance(statuses, list):
-                    status_list = [
-                        {'value': s.get('name', s.get('value', '')),
-                         'color': s.get('color', '#ffffff')}
-                        for s in statuses
-                    ]
-                else:
-                    status_list = []
-
-                panel.set_available_statuses(status_list)
-
+            from ayon_activity_panel import show_activity_panel
+            show_activity_panel(parent=self._parent, bind_rv_events=True)
         except ImportError:
             print("⚠️ Activity Panel addon not available")
         except Exception as e:
@@ -201,21 +129,10 @@ class AYONMenus(MinorMode):
             traceback.print_exc()
 
     def first_submission(self, event):
-        """First submission - collect plates, EditOT, and current render versions"""
-        from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
         ReviewSubmissionHandler.collect_review_inputs(self._parent, is_resubmission=False)
 
     def resubmission(self, event):
-        """Resubmission - collect only current render versions with previous comparison"""
-        from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
         ReviewSubmissionHandler.collect_review_inputs(self._parent, is_resubmission=True)
-
-    def publish_review(self, event):
-        """Auto-publish then show review dialog"""
-        from review_submitter.handlers.review_submission_handler import ReviewSubmissionHandler
-
-        host_tools.show_publisher(parent=self._parent, tab="publish")
-        QtCore.QTimer.singleShot(1000, lambda: ReviewSubmissionHandler.trigger_publish_and_review(self._parent))
 
 
 def data_loader():
@@ -237,7 +154,6 @@ def on_ayon_load_container(event):
 
 
 def load_data(dataset=None):
-
     project_name = get_current_project_name()
     available_loaders = discover_loader_plugins(project_name)
     Loader = next(loader for loader in available_loaders
@@ -249,6 +165,7 @@ def load_data(dataset=None):
     for representation in representations:
         load_container(Loader, representation)
 
+
 # only add menu items if AYON_RV_NO_MENU is not set to 1
 if os.getenv("AYON_RV_NO_MENU") != "1":
     def createMode():
@@ -259,7 +176,6 @@ if os.getenv("AYON_RV_NO_MENU") != "1":
 
             ayon_menus = AYONMenus()
 
-            # Auto-open Review Browser only if addon is available
             if ayon_menus._is_review_browser_available():
                 ayon_menus.review_browser(None)
 

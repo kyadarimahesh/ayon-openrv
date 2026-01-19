@@ -11,6 +11,9 @@ from ayon_openrv.api.ocio import (
     set_group_ocio_colorspace,
 )
 from ayon_openrv.api.pipeline import imprint_container
+from ayon_openrv.plugins.load.openrv.loader_utils import (
+    register_with_rv_operations,
+)
 
 
 class MovLoader(load.LoaderPlugin):
@@ -26,11 +29,11 @@ class MovLoader(load.LoaderPlugin):
     color = "orange"
 
     def load(
-        self,
-        context: dict,
-        name: str | None = None,
-        namespace: str | None = None,
-        options: dict | None = None,
+            self,
+            context: dict,
+            name: str | None = None,
+            namespace: str | None = None,
+            options: dict | None = None,
     ) -> None:
         filepath = self.filepath_from_context(context)
         namespace = namespace if namespace else context["folder"]["name"]
@@ -52,63 +55,7 @@ class MovLoader(load.LoaderPlugin):
         )
 
         # Register with RV Operations for activity panel integration
-        self._register_with_rv_operations(node, filepath, context)
-
-    def _register_with_rv_operations(self, node, filepath, context):
-        """Store version metadata and fire RV event."""
-        # Build event data first to get versions list
-        event_data = None
-        try:
-            import json
-            from ayon_openrv.plugins.load.openrv.loader_utils import build_event_data_with_versions
-
-            event_data = build_event_data_with_versions(context, filepath, self.log)
-            event_data['node'] = node
-
-            # Store metadata including versions from event data
-            self._store_version_metadata(node, context, event_data)
-
-            rv.commands.sendInternalEvent("ayon_source_loaded", json.dumps(event_data))
-            self.log.info(f"Fired ayon_source_loaded event with {len(event_data.get('all_product_versions', []))} versions")
-        except Exception as e:
-            # Fallback: store basic metadata without versions
-            self._store_version_metadata(node, context, None)
-            self.log.debug(f"Could not fire source loaded event: {e}")
-
-    @staticmethod
-    def _store_version_metadata(node, context, event_data=None):
-        """Store version metadata in RV source node."""
-        import json
-
-        version = context.get("version", {})
-        product = context.get("product", {})
-        folder = context.get("folder", {})
-        
-        metadata = {
-            'version_id': version.get("id"),
-            'representation_id': context.get("representation", {}).get("id"),
-            'file_path': get_representation_path(context["representation"]),
-            'product_id': product.get("id"),
-            'product_name': product.get("name"),
-            'task_id': version.get("taskId"),
-            'folder_path': folder.get("path"),
-            'version_name': version.get("name"),
-            'version_status': version.get("status"),
-            'author': version.get("author"),
-            'project_name': context.get("project", {}).get("name")
-        }
-
-        # Add versions data if available from event_data
-        if event_data:
-            metadata['versions'] = json.dumps(event_data.get('versions', []))
-            metadata['all_product_versions'] = json.dumps(event_data.get('all_product_versions', []))
-            metadata['representations'] = json.dumps(event_data.get('representations', []))
-        for key, value in metadata.items():
-            if value:
-                prop = f"{node}.ayon.{key}"
-                if not rv.commands.propertyExists(prop):
-                    rv.commands.newProperty(prop, rv.commands.StringType, 1)
-                rv.commands.setStringProperty(prop, [value], True)
+        register_with_rv_operations(node, filepath, context, self.log)
 
     def _finalize_loaded_node(self, loaded_node, rep_name, filepath):
         """Finalize the loaded node in OpenRV.
